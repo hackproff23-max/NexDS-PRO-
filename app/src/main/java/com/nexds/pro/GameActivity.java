@@ -198,16 +198,28 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback, Co
         if (menuOpen) return;
         menuOpen = true; paused = true;
         String[] items = {"Continuar", ff ? "Acelerar: LIGADO" : "Acelerar: desligado",
-            "Salvar estado", "Carregar estado", "Reiniciar", "Sair"};
+            "Salvar estado", "Carregar estado", "Reiniciar", "Ver log", "Sair"};
         new AlertDialog.Builder(this).setTitle("NexDS PRO").setItems(items, (d, which) -> {
             switch (which) {
                 case 1: toggleFast(); break;
                 case 2: cmd = C_SAVE; break;
                 case 3: cmd = C_LOAD; break;
                 case 4: cmd = C_RESET; break;
-                case 5: finish(); break;
+                case 5: showLog(); break;
+                case 6: finish(); break;
             }
         }).setOnDismissListener(d -> { menuOpen = false; paused = false; }).show();
+    }
+
+    private void showLog() {
+        android.widget.TextView t = new android.widget.TextView(this);
+        t.setText(Native.nativeGetLog());
+        t.setTextIsSelectable(true);
+        t.setTextSize(11);
+        t.setPadding(24, 24, 24, 24);
+        android.widget.ScrollView sc = new android.widget.ScrollView(this);
+        sc.addView(t);
+        new AlertDialog.Builder(this).setTitle("Log").setView(sc).setPositiveButton("Fechar", null).show();
     }
 
     @Override public void onBackPressed() { showMenu(); }

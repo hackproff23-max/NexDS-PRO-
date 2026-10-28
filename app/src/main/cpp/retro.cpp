@@ -15,8 +15,18 @@
 #include <cstdint>
 
 #define TAG "NexDS"
+static std::mutex g_logMu;
+static std::string g_log;
+static std::atomic<long> g_frames{0};
+static std::atomic<uint32_t> g_px0{0}, g_pxc{0};
+static void addLog(const char *s) {
+    std::lock_guard<std::mutex> lk(g_logMu);
+    g_log += s;
+    if (g_log.size() > 16384) g_log.erase(0, g_log.size() - 12288);
+}
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#define LOGE(...) do { char _b[300]; snprintf(_b, sizeof _b, __VA_ARGS__); \
+    __android_log_print(ANDROID_LOG_ERROR, TAG, "%s", _b); addLog("[app] "); addLog(_b); addLog("\n"); } while (0)
 
 struct retro_game_info { const char *path; const void *data; size_t size; const char *meta; };
 struct retro_system_info { const char *library_name; const char *library_version; const char *valid_extensions; bool need_fullpath; bool block_extract; };
@@ -72,10 +82,13 @@ static double g_fps = 60.0, g_rate = 32768.0;
 static unsigned g_bw = 256, g_bh = 384;
 
 static void log_cb(int level, const char *fmt, ...) {
+    char buf[1024];
     va_list ap;
     va_start(ap, fmt);
-    __android_log_vprint(level >= 3 ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "NexDS-core", fmt, ap);
+    vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
+    __android_log_print(level >= 3 ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "NexDS-core", "%s", buf);
+    addLog("[core] "); addLog(buf);
 }
 
 static bool env_cb(unsigned cmd, void *data) {
@@ -105,6 +118,14 @@ static bool env_cb(unsigned cmd, void *data) {
 
 static void video_cb(const void *data, unsigned w, unsigned h, size_t pitch) {
     if (!data || !w || !h) return;
+    g_frames++;
+    if (g_fmt == 2) {
+        g_px0 = ((const uint16_t *)data)[0];
+        g_pxc = *(const uint16_t *)((const uint8_t *)data + (h * 3 / 4) * pitch + (w / 2) * 2);
+    } else {
+        g_px0 = ((const uint32_t *)data)[0];
+        g_pxc = *(const uint32_t *)((const uint8_t *)data + (h * 3 / 4) * pitch + (w / 2) * 4);
+    }
     std::lock_guard<std::mutex> lk(g_winMu);
     if (!g_win) return;
     if (g_dirty || w != g_w || h != g_h) {
@@ -234,6 +255,7 @@ JNIEXPORT jboolean JNICALL Java_com_nexds_pro_Native_nativeLoadGame(JNIEnv *env,
     if (av.geometry.base_width) g_bw = av.geometry.base_width;
     if (av.geometry.base_height) g_bh = av.geometry.base_height;
     g_loaded = true;
+    LOGE("jogo carregado: %ux%u fps=%.2f audio=%.0f fullpath=%d", g_bw, g_bh, g_fps, g_rate, (int)si.need_fullpath);
     return JNI_TRUE;
 }
 
@@ -246,6 +268,15 @@ JNIEXPORT jint JNICALL Java_com_nexds_pro_Native_nativeAudio(JNIEnv *env, jclass
     env->SetShortArrayRegion(arr, 0, (jsize)n, g_audio.data());
     g_audio.erase(g_audio.begin(), g_audio.begin() + n);
     return (jint)n;
+}
+
+JNIEXPORT jstring JNICALL Java_com_nexds_pro_Native_nativeGetLog(JNIEnv *env, jclass) {
+    char head[256];
+    snprintf(head, sizeof head, "frames=%ld video=%ux%u fmt=%d surface=%d px0=%08x pxBaixo=%08x\n----\n",
+             (long)g_frames.load(), g_w, g_h, g_fmt, g_win ? 1 : 0, g_px0.load(), g_pxc.load());
+    std::string r = head;
+    { std::lock_guard<std::mutex> lk(g_logMu); r += g_log; }
+    return env->NewStringUTF(r.c_str());
 }
 
 JNIEXPORT jdouble JNICALL Java_com_nexds_pro_Native_nativeFps(JNIEnv *, jclass) { return g_fps; }

@@ -22,6 +22,7 @@ public final class Native {
     public static native boolean nativeLoadSram(String path);
     public static native void nativeReset();
     public static native void nativeUnload();
+    public static native String nativeGetLog();
 
     private Native() {}
 }
