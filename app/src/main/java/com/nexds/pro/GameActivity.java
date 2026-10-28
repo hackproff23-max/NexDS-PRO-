@@ -32,6 +32,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback, Co
     private volatile int cmd = 0;
     private int touchMask, keyMask, axisMask;
     private String romPath, srm, state;
+    private int coreSel;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -41,9 +42,11 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback, Co
             getWindow().getAttributes().layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
 
+        coreSel = getSharedPreferences("cfg", 0).getInt("core", 0);
         String base = new File(romPath).getName();
         int dot = base.lastIndexOf('.');
         if (dot > 0) base = base.substring(0, dot);
+        if (coreSel == 1) base = base + "_desmume";
         File saves = new File(getFilesDir(), "saves");
         saves.mkdirs();
         srm = new File(saves, base + ".srm").getPath();
@@ -104,8 +107,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback, Co
         AudioTrack track = null;
         boolean inited = false;
         try {
-            String core = getApplicationInfo().nativeLibraryDir + "/libretro_core.so";
-            if (!new File(core).exists()) { fail("Core melonDS nao encontrado no APK"); return; }
+            String core = getApplicationInfo().nativeLibraryDir + "/" + (coreSel == 1 ? "libretro_core2.so" : "libretro_core.so");
+            if (!new File(core).exists()) { fail("Core nao encontrado no APK (veja o build do Actions)"); return; }
             File sys = new File(getFilesDir(), "system");
             sys.mkdirs();
             inited = Native.nativeInit(core, sys.getPath(), new File(getFilesDir(), "saves").getPath());

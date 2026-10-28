@@ -6,3 +6,5 @@ local.properties
 app/src/main/jniLibs/
 core.zip
 core_tmp/
+core2.zip
+core_tmp2/

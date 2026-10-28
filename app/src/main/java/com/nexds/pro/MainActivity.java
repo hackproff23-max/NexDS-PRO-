@@ -31,7 +31,8 @@ public class MainActivity extends Activity {
     private File romDir, sysDir;
     private final List<File> roms = new ArrayList<>();
     private ArrayAdapter<String> adapter;
-    private TextView empty;
+    private TextView empty, biosInfo;
+    private Button coreBtn;
 
     private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
 
@@ -66,6 +67,19 @@ public class MainActivity extends Activity {
         bios.setText("Importar BIOS/firmware (opcional)");
         bios.setOnClickListener(v -> pick(REQ_BIOS, true));
         root.addView(bios);
+
+        biosInfo = new TextView(this);
+        biosInfo.setTextColor(0xFF8FA3B5);
+        biosInfo.setTextSize(12);
+        root.addView(biosInfo);
+
+        coreBtn = new Button(this);
+        coreBtn.setOnClickListener(v -> {
+            int c = 1 - getSharedPreferences("cfg", 0).getInt("core", 0);
+            getSharedPreferences("cfg", 0).edit().putInt("core", c).apply();
+            refresh();
+        });
+        root.addView(coreBtn);
 
         TextView rec = new TextView(this);
         rec.setText("Jogos recentes");
@@ -110,6 +124,13 @@ public class MainActivity extends Activity {
         for (File f : roms) adapter.add(f.getName());
         adapter.notifyDataSetChanged();
         empty.setVisibility(roms.isEmpty() ? TextView.VISIBLE : TextView.GONE);
+        int c = getSharedPreferences("cfg", 0).getInt("core", 0);
+        coreBtn.setText("Core: " + (c == 1 ? "DeSmuME" : "melonDS") + " (toque para trocar)");
+        boolean b7 = new File(sysDir, "bios7.bin").exists();
+        boolean b9 = new File(sysDir, "bios9.bin").exists();
+        boolean fw = new File(sysDir, "firmware.bin").exists();
+        biosInfo.setText("BIOS: bios7 " + (b7 ? "OK" : "-") + " | bios9 " + (b9 ? "OK" : "-")
+            + " | firmware " + (fw ? "OK" : "-") + ((b7 && b9 && fw) ? "" : "  (usando FreeBIOS)"));
     }
 
     private void pick(int req, boolean multi) {
@@ -130,10 +151,20 @@ public class MainActivity extends Activity {
         if (uris.isEmpty()) return;
         final boolean rom = req == REQ_ROM;
         Toast.makeText(this, rom ? "Copiando ROM..." : "Importando...", Toast.LENGTH_SHORT).show();
+        final int[] bad = {0};
+        final List<String> got = new ArrayList<>();
         new Thread(() -> {
             File last = null;
             try {
-                for (Uri u : uris) last = copy(u, rom ? romDir : sysDir);
+                for (Uri u : uris) {
+                    File f = copy(u, rom ? romDir : sysDir);
+                    if (rom) { last = f; continue; }
+                    String nm = biosName(f.length());
+                    if (nm == null) { f.delete(); bad[0]++; continue; }
+                    File dest = new File(sysDir, nm);
+                    if (!f.equals(dest)) { dest.delete(); f.renameTo(dest); }
+                    got.add(nm);
+                }
             } catch (IOException e) {
                 runOnUiThread(() -> Toast.makeText(this, "Erro ao copiar: " + e.getMessage(), Toast.LENGTH_LONG).show());
                 return;
@@ -141,7 +172,12 @@ public class MainActivity extends Activity {
             final File f = last;
             runOnUiThread(() -> {
                 if (rom && f != null) startGame(f);
-                else Toast.makeText(this, "Arquivos importados", Toast.LENGTH_SHORT).show();
+                else {
+                    Toast.makeText(this, got.isEmpty()
+                        ? "Nenhum arquivo reconhecido (esperado bios7, bios9 ou firmware)"
+                        : "Importado: " + got + (bad[0] > 0 ? " | ignorados: " + bad[0] : ""), Toast.LENGTH_LONG).show();
+                    refresh();
+                }
             });
         }).start();
     }
@@ -163,6 +199,13 @@ public class MainActivity extends Activity {
             while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
         }
         return out;
+    }
+
+    private static String biosName(long n) {
+        if (n == 16384) return "bios7.bin";
+        if (n == 4096) return "bios9.bin";
+        if (n == 131072 || n == 262144 || n == 524288) return "firmware.bin";
+        return null;
     }
 
     private void startGame(File f) {
